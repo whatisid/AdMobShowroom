@@ -11,18 +11,20 @@ import android.content.SharedPreferences;
 import android.widget.TextView;
 import android.widget.RelativeLayout;
 
-import com.google.ads.*;
-import com.google.ads.doubleclick.*;
-import com.google.ads.AdRequest.ErrorCode;
+import com.google.android.gms.ads.*;
+import com.google.android.gms.ads.doubleclick.*;
+import com.google.android.gms.ads.doubleclick.PublisherAdRequest.Builder;
+import com.google.android.gms.ads.mediation.admob.AdMobExtras;
+
 import com.google.analytics.tracking.android.EasyTracker;
 import com.google.analytics.tracking.android.Tracker;
 
-public class AdViewActivity extends Activity implements AdListener {
+public class AdViewActivity extends Activity {
 
 	private InterstitialAd interstitial;
-	private DfpInterstitialAd dfpInterstitial;
+	private PublisherInterstitialAd dfpInterstitial;
 	private AdView adView;
-	private DfpAdView dfpAdView;
+	private PublisherAdView dfpAdView;
 	
 	public final static String AD_UNIT_ID = "a151d669cbbcb52";
 	public final static int DIMENSION_AD_UNIT_TYPE = 1;
@@ -81,7 +83,7 @@ public class AdViewActivity extends Activity implements AdListener {
 		return index;
 	}
 	
-	protected int getCustomTargetExtras(DfpExtras extras, StringBuffer extrasString)
+	protected int getCustomTargetExtras(Bundle bundles, StringBuffer extrasString)
 	{
     	String[] keys = new String[1000];
     	String[] values = new String[1000];
@@ -91,7 +93,7 @@ public class AdViewActivity extends Activity implements AdListener {
     	{    		
     		for (int i=0;i<count;i++)
     		{
-    			extras.addExtra(keys[i].trim(), values[i]);
+    			bundles.putString(keys[i].trim(), values[i]);
     			extrasString.append( keys[i].trim()+"="+ values[i]+(i==count-1?"":",") );
     			
     		}
@@ -127,9 +129,14 @@ public class AdViewActivity extends Activity implements AdListener {
 		AdSize adSize = AdSize.BANNER;
 		String strAdSize = "Banner";
 		
-		if (isUsingDefault()) appendStatusText("Loading with default ad unit id...");
-		else appendStatusText("Loading with ad unit id '"+getAdUnitId()+"'");
-		
+		// Check custom targeting
+    	Bundle bundle = new Bundle();
+    	StringBuffer bundleString = new StringBuffer();
+    	int customTargetingCount = getCustomTargetExtras(bundle, bundleString);
+    	
+		if (isUsingDefault()) appendStatusText("Start loading with default ad unit id...");
+		else appendStatusText("Start loading with ad unit id '"+getAdUnitId()+"'");
+    	
 	    switch (id) 
 	    {
 	    case R.id.Button320x50:
@@ -137,15 +144,15 @@ public class AdViewActivity extends Activity implements AdListener {
 	    	strAdSize = "320x50";
 	    	break;
 	    case R.id.Button300x250:
-	    	adSize = AdSize.IAB_MRECT;
+	    	adSize = AdSize.MEDIUM_RECTANGLE;
 	    	strAdSize = "300x250";
 	    	break;
 	    case R.id.Button468x60:
-	    	adSize = AdSize.IAB_BANNER;
+	    	adSize = AdSize.FULL_BANNER;
 	    	strAdSize = "468x60";
 	    	break;
 	    case R.id.Button728x90:
-	    	adSize = AdSize.IAB_LEADERBOARD;
+	    	adSize = AdSize.LEADERBOARD;
 	    	strAdSize = "728x90";
 	    	break;
 	    case R.id.ButtonSmartBanner:
@@ -173,95 +180,180 @@ public class AdViewActivity extends Activity implements AdListener {
 	    	break;
 	    	
 	    case R.id.ButtonInterstitial:
+	    	// create new listener for interstitial	    	
+	    	AdListener interstitialListener = new AdListener() {
+	    		public void onAdLoaded()
+	    		{
+	    			displayInterstitial();
+	    		}
+	    		public void onAdFailedToLoad(int errorCode)
+	    		{
+	    			failToLoad(errorCode);
+	    		}
+	    		public void onAdClosed()
+	    		{
+	    			closeInterstitial();
+	    		}
+	    		
+	    	};
+	    	
 	    	if (isUsingDfp())
 	    	{
-	    	    // Create the interstitial
-	    	    dfpInterstitial = new DfpInterstitialAd(this, getAdUnitId());
-	    	    // Create ad request
-	    	    AdRequest adRequest = new AdRequest();
+	    		// [Interstitial. DFP.]
+	    	    dfpInterstitial = new PublisherInterstitialAd(this);
+	    	    dfpInterstitial.setAdUnitId(this.getAdUnitId());
+		    	// set listener
+		    	dfpInterstitial.setAdListener(interstitialListener);
+	    	    // Create ad builder
+	    	    Builder adBuilder = new PublisherAdRequest.Builder();
+	    	  
+	        	if (customTargetingCount >0) 
+	        	{
+	        		adBuilder.addNetworkExtras(new AdMobExtras(bundle));
+	        		appendStatusText("Set "+customTargetingCount+" custom value(s). - "+bundleString.toString());
+	        	}
+	        	
 	    	    // Begin loading your interstitial
+	        	PublisherAdRequest adRequest = adBuilder.build();
 	    	    dfpInterstitial.loadAd(adRequest);
-	    	    // Set Ad Listener to use the callbacks below
-	    	    dfpInterstitial.setAdListener(this);
 	    	    
 	    	    sendAnalytics("DFP","Interstitial");
 	    	}
 	    	else
 	    	{
-		    	// Create the interstitial
-		    	interstitial = new InterstitialAd(this, getAdUnitId());
+	    		// [Interstitial. AdMob.]
+		    	interstitial = new InterstitialAd(this);
+		    	interstitial.setAdUnitId(this.getAdUnitId());
+		    	// set listener
+		    	interstitial.setAdListener(interstitialListener);	
 		    	// Create ad request
-		    	AdRequest adRequest = new AdRequest();
+		    	AdRequest adRequest = new AdRequest.Builder().build();
+		    	
 		    	// Begin loading your interstitial
 		    	interstitial.loadAd(adRequest);
-		    	// Set Ad Listener to use the callbacks below
-		    	interstitial.setAdListener(this);
+		    	
+		   
 		    	if (isUsingDefault()) sendAnalytics("Default","Interstitial"); else sendAnalytics("AdMob","Interstitial");
 	    	}
 	    	break;
+	    	
 	      default:
-	    	  break;
+	    	break;
 	    }
+	    
+	    // If it is not interstitial, load from here.
 	    if (id != R.id.ButtonInterstitial)
 	    {
+	    	// create new listener for banner
+	    	AdListener bannerListener = new AdListener() {
+	    		public void onAdLoaded()
+	    		{
+	    			succeedInLoading();
+	    		}
+	    		public void onAdFailedToLoad(int errorCode)
+	    		{
+	    			failToLoad(errorCode);
+	    		}
+	    	};
+	    	
 	    	RelativeLayout layout = (RelativeLayout) findViewById(R.id.bannersLayout);
-			if (isUsingDfp())
-			{
-				dfpAdView = new DfpAdView(this, adSize, getAdUnitId());
+			if (isUsingDfp()) 
+			{	
+				// [Banner. DFP.]
+				dfpAdView = new PublisherAdView(this);
+				dfpAdView.setAdSizes(adSize);
+				dfpAdView.setAdUnitId(getAdUnitId());
+				dfpAdView.setAdListener(bannerListener);
 		    	layout.addView(dfpAdView);
-		    	dfpAdView.setAdListener(this);
-		    	AdRequest request = new AdRequest();
-		    	
-		    	DfpExtras extras = new DfpExtras();
-		    	StringBuffer extrasString = new StringBuffer();
-		    	
-		    	int count = getCustomTargetExtras(extras, extrasString);
-		    	
-		    	if (count>0) 
-		    	{
-		    		request.setNetworkExtras(extras);
-		    		appendStatusText("Set "+count+" custom value(s). - "+extrasString.toString());
-		    	}
+		    	//dfpAdView.setAdListener(this);
+	    	    // Create ad builder
+	    	    Builder adBuilder = new PublisherAdRequest.Builder();
+	    	  
+	        	if (customTargetingCount >0) 
+	        	{
+	        		adBuilder.addNetworkExtras(new AdMobExtras(bundle));
+	        		appendStatusText("Set "+customTargetingCount+" custom value(s). - "+bundleString.toString());
+	        	}
+	        	
+	    	    // Begin loading your interstitial
+	        	PublisherAdRequest adRequest = adBuilder.build();
 		    	appendStatusText("Set ad size - "+strAdSize);
-		    	dfpAdView.loadAd(request);
+		    	dfpAdView.loadAd(adRequest);
 		    	
 		    	if (isUsingDefault()) sendAnalytics("Default", strAdSize); else sendAnalytics("DFP", strAdSize);
 			}
 			else
 			{
-				adView = new AdView(this, adSize, getAdUnitId());
+				// [Banner. AdMob.]
+				adView = new AdView(this);
+				adView.setAdSize(adSize);
+				adView.setAdUnitId(getAdUnitId());
+				adView.setAdListener(bannerListener);
 		    	layout.addView(adView);
-		    	adView.setAdListener(this);
-		    	adView.loadAd(new AdRequest());
+		    	appendStatusText("Set ad size - "+strAdSize);
+		    	
+		    	AdRequest adRequest = new AdRequest.Builder().build();
+		    	adView.loadAd(adRequest);
 		    	if (isUsingDefault()) sendAnalytics("Default", strAdSize); else sendAnalytics("AdMob", strAdSize);
 			}
 	    }
 	}
-
-	@Override
-	public void onReceiveAd(Ad ad) 
+	
+	// Invoke displayInterstitial() when you are ready to display an interstitial.
+	public void displayInterstitial() 
 	{
-		if (!isUsingDfp() && (ad == interstitial))
+		boolean isLoaded = true;
+		
+		if (!isUsingDfp())
 	    {
-	      interstitial.show();
+	      if (interstitial.isLoaded()) interstitial.show();
+	      else isLoaded = false;
 	    }
-		if (isUsingDfp() && (ad == dfpInterstitial))
+		if (isUsingDfp())
 		{
-			dfpInterstitial.show();
+			if (dfpInterstitial.isLoaded()) dfpInterstitial.show();
+			else isLoaded = false;
 		}
 	    
-	    appendStatusText("Loaded successfully.");
+	    if (isLoaded) appendStatusText("Loaded interstitial successfully.");
+	    else appendStatusText("Failed to interstitial load.");
 	}
-
-	@Override
-	public void onDismissScreen(Ad ad) {
-	    appendStatusText("Closed.");
+	
+	// when ads (excl. interstitial) are loaded.
+	public void succeedInLoading()
+	{
+		appendStatusText("Loaded successfully.");
+	}
+	
+	// when loading is failed.
+	public void failToLoad(int errorCode) 
+	{
+		String strErrorMsg = "ErrorCode="+String.valueOf(errorCode);
+		switch (errorCode)
+		{
+			case AdRequest.ERROR_CODE_INTERNAL_ERROR:
+				strErrorMsg = "Internal Error";
+				break;
+			case AdRequest.ERROR_CODE_INVALID_REQUEST:
+				strErrorMsg = "Invalid Request";
+				break;
+			case AdRequest.ERROR_CODE_NETWORK_ERROR:
+				strErrorMsg = "Network Error";
+				break;
+			case AdRequest.ERROR_CODE_NO_FILL:
+				strErrorMsg = "No Fill";
+				break;
+			default:
+				break;	
+		}
 		
+	    appendStatusText("Failed To receive ad. - " + strErrorMsg);		
 	}
-
-	@Override
-	public void onFailedToReceiveAd(Ad ad, ErrorCode errorCode) {
-	    appendStatusText("Failed To recevie ad. - " + errorCode);		
+	    
+	// when close ad
+	public void closeInterstitial()
+	{
+		appendStatusText("Closed.");
 	}
 
 	@Override
@@ -276,13 +368,4 @@ public class AdViewActivity extends Activity implements AdListener {
 		EasyTracker.getInstance().activityStop(this);
 	}
 
-	@Override
-	public void onLeaveApplication(Ad ad) {
-		
-	}
-
-	@Override
-	public void onPresentScreen(Ad ad) {
-		
-	}
 }
